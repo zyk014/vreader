@@ -22,10 +22,29 @@ jobs:
         run: |
           xcodebuild -project vreader.xcodeproj             -scheme vreader             -configuration Release             -destination 'generic/platform=iOS'             -derivedDataPath build             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             CODE_SIGN_IDENTITY=""             DEVELOPMENT_TEAM=""             build 2>&1 | tail -80
 
+      - name: Apply ad-hoc signature
+        run: |
+          APP=
+          echo "Signing: $APP"
+          # Sign all frameworks first
+          find "$APP/Frameworks" -name "*.framework" -type d | while read fw; do
+            echo "Signing framework: $fw"
+            codesign --force --sign - --entitlements /dev/null "$fw"
+          done
+          # Sign all dylibs
+          find "$APP" -name "*.dylib" | while read dy; do
+            echo "Signing dylib: $dy"
+            codesign --force --sign - --entitlements /dev/null "$dy"
+          done
+          # Sign the app itself
+          codesign --force --sign - --entitlements /dev/null "$APP"
+          # Verify
+          codesign -vv "$APP" || true
+
       - name: Package IPA
         run: |
           mkdir -p /tmp/ipa_out
-          APP=$(find build -name "*.app" -type d | head -1)
+          APP=
           if [ -z "$APP" ]; then
             echo "ERROR: app not found"
             find build -type d -name "*.app" 2>/dev/null
