@@ -16,43 +16,62 @@ jobs:
 
       - name: Resolve SPM dependencies
         run: |
-          xcodebuild -project vreader.xcodeproj             -scheme vreader             -resolvePackageDependencies             -destination 'generic/platform=iOS' || true
+          xcodebuild -project vreader.xcodeproj \
+            -scheme vreader \
+            -resolvePackageDependencies \
+            -destination 'generic/platform=iOS' || true
 
       - name: Build app (no codesign)
         run: |
-          xcodebuild -project vreader.xcodeproj             -scheme vreader             -configuration Release             -destination 'generic/platform=iOS'             -derivedDataPath build             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             CODE_SIGN_IDENTITY=""             DEVELOPMENT_TEAM=""             build 2>&1 | tail -80
+          xcodebuild -project vreader.xcodeproj \
+            -scheme vreader \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build 2>&1 | tail -80
 
       - name: Apply ad-hoc signature
         run: |
-          APP=
-          echo "Signing: $APP"
-          # Sign all frameworks first
-          find "$APP/Frameworks" -name "*.framework" -type d | while read fw; do
-            echo "Signing framework: $fw"
-            codesign --force --sign - --entitlements /dev/null "$fw"
-          done
-          # Sign all dylibs
-          find "$APP" -name "*.dylib" | while read dy; do
-            echo "Signing dylib: $dy"
-            codesign --force --sign - --entitlements /dev/null "$dy"
-          done
-          # Sign the app itself
-          codesign --force --sign - --entitlements /dev/null "$APP"
-          # Verify
-          codesign -vv "$APP" || true
-
-      - name: Package IPA
-        run: |
-          mkdir -p /tmp/ipa_out
-          APP=
-          if [ -z "$APP" ]; then
-            echo "ERROR: app not found"
+          set +e
+          APP_PATH=$(find build -name "*.app" -type d | head -1)
+          echo "Found app: ${APP_PATH}"
+          if [ -z "${APP_PATH}" ]; then
+            echo "ERROR: No .app found"
             find build -type d -name "*.app" 2>/dev/null
             exit 1
           fi
-          echo "Found: $APP"
+          echo "Signing frameworks..."
+          find "${APP_PATH}/Frameworks" -name "*.framework" -type d 2>/dev/null | while read fw; do
+            echo "  -> ${fw}"
+            codesign --force --sign - "${fw}" 2>&1
+          done
+          echo "Signing dylibs..."
+          find "${APP_PATH}" -name "*.dylib" 2>/dev/null | while read dy; do
+            echo "  -> ${dy}"
+            codesign --force --sign - "${dy}" 2>&1
+          done
+          echo "Signing app..."
+          codesign --force --sign - "${APP_PATH}" 2>&1
+          echo "Verifying..."
+          codesign -vv "${APP_PATH}" 2>&1 || true
+
+      - name: Package IPA
+        run: |
+          set +e
+          APP_PATH=$(find build -name "*.app" -type d | head -1)
+          if [ -z "${APP_PATH}" ]; then
+            echo "ERROR: app not found"
+            exit 1
+          fi
+          echo "Found: ${APP_PATH}"
           mkdir -p /tmp/Payload
-          cp -R "$APP" /tmp/Payload/
+          cp -R "${APP_PATH}" /tmp/Payload/
+          cd /tmp && zip -r ipa_out/VReader.ipa Payload/
+          mkdir -p /tmp/ipa_out
           cd /tmp && zip -r ipa_out/VReader.ipa Payload/
           ls -lh /tmp/ipa_out/VReader.ipa
 
